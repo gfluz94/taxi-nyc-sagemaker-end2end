@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import json
+import logging
+from typing import Tuple
+
+import pandas as pd
+import numpy as np
+import dill
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+
+from data_utils import prepare_data
+from model import (define_preprocessing_pipeline, define_candidate_model, 
+                   NumericalPreprocessor, Pipeline,
+                   SEED, CONTINUOUS_FEATURES_LOG, CONTINUOUS_FEATURES, 
+                   CATEGORICAL_FEATURES, INTEGER_FEATURES, TARGET_COLUMN)
+from evaluation_utils import regression_metrics
+
+
+logging.basicConfig(level=logging.DEBUG, format="[%(asctime)s] %(levelname)s - %(message)s")
+logger = logging.getLogger()
+
+
+PREFIX = "/opt/ml/"
+INPUT_PATH = os.path.join(PREFIX, "input/data")
+
+np.random.seed(SEED)
+
+
+def get_arguments() -> dict:
+    """"
+    Function that reads the hyperparameters from SageMaker training job
+    """
+    with open(os.path.join(PREFIX, "input/config/hyperparameters.json"), "r") as tc:
+        trainingParams = json.load(tc)
+    return trainingParams
+
+
+def load_data(file_path, channel):
+    """"
+    Function that loads the data from each channel in S3 buckets
+
+        Args: 
+            file_path (str): path to S3 bucket
+            channel (str): `train` or `test`
+
+        Returns: 
+           Pandas DataFrame containing data (target labels and input texts)
+    """
+    
+    input_files = [ os.path.join(file_path, file) for file in os.listdir(file_path) ]
+    raw_data = [ pd.read_csv(file) for file in input_files ]
+    df = pd.concat(raw_data)
+    return df
+
+
+def train(model_candidate: Tuple, preprocessor: Pipeline,
+          X_train: pd.DataFrame, y_train: pd.DataFrame,
+          scoring: str = "neg_mean_squared_error", cv: int = 3,
+          verbose: bool = False) -> dict:
+    
+    """
+    Function that runs hyperparameter tuning for each candidate model using GridSearch.
+    
+    Args: 
+        model_candidate (tuple): model name, model object itself and parameters search hyperspace
+        preprocessor (sklearn Pipeline): Pipeline object to preprocess the input features.
+        feature_selection (list of bool): Whether or not to apply feature selection
+        X_train (pandas DataFrame): input features
+        y_train (numpy array): transformed target
+        scoring (str): scoring metric for which we will optimize
+        cv (int): number of CV folds
+        verbose (bool): if True, status is displayed on screen
+        
+    Returns: 
+        Dictionary with key representing model name and value containing the model itself.
+    """
+
+    best_model = dict()
+    model_name, model, model_params = model_candidate
+    if verbose:
+        logger.info(f"[{model_name.upper()}]")
+    pipeline = Pipeline(steps=[
+        ("preprocessor", preprocessor),
+        (model_name, model)
+    ])
+    grid_search = GridSearchCV(
+        estimator=pipeline,
+        param_grid=model_params,
+        scoring=scoring,
+        refit=True,
+        return_train_score=True,
+        cv=cv
+    )
+    
+    grid_search = grid_search.fit(X_train, y_train)
+    
+    mse_train = -1*grid_search.cv_results_["mean_train_score"][grid_search.best_index_]
+    mse_train_std = grid_search.cv_results_["std_train_score"][grid_search.best_index_]
+    mse_val = -1*grid_search.cv_results_["mean_test_score"][grid_search.best_index_]
+    mse_val_std = grid_search.cv_results_["std_test_score"][grid_search.best_index_]
+    best_params = "\n\t\t- ".join([f'{k.split("__")[-1]} = {v:.4f}' \
+                                    for k, v in grid_search.best_params_.items()])
+    
+    if verbose:
+        logger.info(f"\tBest parameters:\n\t\t- {best_params}")
+        logger.info(f"\tTrain MSE: {mse_train:.4f} ± {mse_train_std:.4f}")
+        logger.info(f"\t  Val MSE: {mse_val:.4f} ± {mse_val_std:.4f}", end="\n\n")
+
+    best_model[model_name] = grid_search.best_estimator_
+        
+    return best_model
+
+if __name__ == "__main__":
+    logger.info("TRAINING STARTED...")
+    try:
+
+        trainingParams = get_arguments()
+
+        cv_folds = int(trainingParams.get('cv_folds', 0))
+        verbose = not (int(trainingParams.get('verbose', 0)) == 0)
+        checkpoint = not (int(trainingParams.get('checkpoint', 0)) == 0)
+        output_data_dir = trainingParams.get('output-data-dir', os.path.join(PREFIX, "output"))
+        model_dir = trainingParams.get('model-dir', os.path.join(PREFIX, "model"))
+        train_path = trainingParams.get('train', os.path.join(INPUT_PATH, "train"))
+        test_path = trainingParams.get('test', os.path.join(INPUT_PATH, "test"))
+        checkpoint_path = trainingParams.get('checkpoint', os.path.join(PREFIX, "checkpoints"))
+        logger.info("PARAMETERS LOADED!")
+
+        train_data = load_data(train_path, "train")
+        test_data = load_data(test_path, "test")
+        logger.info("DATA LOADED!")
+
+        train_df = prepare_data(
+            data=train_data,
+            feature_engineering=True,
+            drop_columns=["fare_class"]
+        )
+
+        test_df = prepare_data(
+            data=test_data,
+            feature_engineering=True,
+            drop_columns=["fare_class"]
+        )
+        logger.info("FEATURES ENGINEERED!")
+
+        feats = CONTINUOUS_FEATURES_LOG + CONTINUOUS_FEATURES + INTEGER_FEATURES + CATEGORICAL_FEATURES
+        X_train, y_train = train_df.loc[:, feats], train_df.loc[:, TARGET_COLUMN]
+        X_test, y_test = test_df.loc[:, feats], test_df.loc[:, TARGET_COLUMN]
+        logger.info("FEATURES AND TARGET VALUES DEFINED!")
+
+        target_transformer = NumericalPreprocessor(apply_log=True, scaling="standard")
+        model_candidate = define_candidate_model()
+        preprocessor = define_preprocessing_pipeline(
+            continuous_features_log=CONTINUOUS_FEATURES_LOG,
+            continuous_features=CONTINUOUS_FEATURES,
+            integer_features=INTEGER_FEATURES,
+            categorical_features=CATEGORICAL_FEATURES,
+        )
+        logger.info("MODEL ARTIFACTS CREATED!")
+
+        logger.info("TRAINING MODEL...")
+        y_train_adj = target_transformer.fit_transform(y_train).reshape(-1)
+        y_test_adj = target_transformer.transform(y_test).reshape(-1)
+        best_model = train(
+            model_candidate=model_candidate,
+            preprocessor=preprocessor,
+            X_train=X_train,
+            y_train=y_train_adj,
+            scoring="neg_mean_squared_error",
+            cv=cv_folds,
+            verbose=True,
+        )
+        logger.info("TRAINING COMPLETED!!")
+
+        logger.info("PREDICTING THE TEST DATA...")
+        model_name = model_candidate[0]
+        model = best_model[model_name]
+        y_pred_log = model.predict(X_test).reshape(-1, 1)
+        y_pred = target_transformer.inverse_transform(y_pred_log).reshape(-1)
+
+        logger.info("EVALUATING PERFORMANCE...")
+        metrics = regression_metrics(y_test, y_pred)
+        for metric_name, metric_value in metrics.items():
+            logger.info(f"{metric_name} = {metric_value:.4f}")
+        with open(os.path.join(output_data_dir, "metrics.json"), "w") as output_file:
+            json.dump(metrics, output_file)
+
+        logger.info("SAVING MODEL...")
+        with open(os.path.join(model_dir, "model.pkl"), "wb") as file:
+            dill.dump(model, file)
+        with open(os.path.join(model_dir, "post_processor.pkl"), "wb") as file:
+            dill.dump(target_transformer, file)
+        logger.info("MODEL SAVED!")
+
+    except Exception as e:
+        logger.error(f"Exception during training:\n{e}")
+        sys.exit(255)
+
+    sys.exit(0)
