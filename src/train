@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import dill
 
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import GridSearchCV
 
 from data_utils import prepare_data
 from model import (define_preprocessing_pipeline, define_candidate_model, 
