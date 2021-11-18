@@ -46,7 +46,7 @@ def ping():
 def invocations():
     """
         Online prediction on single data instance. Data is accepted as JSON and then properly parsed.
-        Then, the model predicts whether the text contains humor or not.
+        Then, the model predicts taxi fare amount.
     """
     data = request.get_json(silent=True)
     df = pd.DataFrame([data])
