@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
         trainingParams = get_arguments()
 
-        cv_folds = int(trainingParams.get('cv_folds', 0))
+        cv_folds = int(trainingParams.get('cv_folds', 3))
         verbose = not (int(trainingParams.get('verbose', 0)) == 0)
         checkpoint = not (int(trainingParams.get('checkpoint', 0)) == 0)
         output_data_dir = trainingParams.get('output-data-dir', os.path.join(PREFIX, "output"))
