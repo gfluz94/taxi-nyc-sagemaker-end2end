@@ -102,13 +102,13 @@ def train(model_candidate: Tuple, preprocessor: Pipeline,
     mse_train_std = grid_search.cv_results_["std_train_score"][grid_search.best_index_]
     mse_val = -1*grid_search.cv_results_["mean_test_score"][grid_search.best_index_]
     mse_val_std = grid_search.cv_results_["std_test_score"][grid_search.best_index_]
-    best_params = "\n\t\t- ".join([f'{k.split("__")[-1]} = {v:.4f}' \
-                                    for k, v in grid_search.best_params_.items()])
+    best_params = "\n- ".join([f'{k.split("__")[-1]} = {v:.4f}' \
+                               for k, v in grid_search.best_params_.items()])
     
     if verbose:
-        logger.info(f"\tBest parameters:\n\t\t- {best_params}")
+        logger.info(f"\tBest parameters:\n- {best_params}")
         logger.info(f"\tTrain MSE: {mse_train:.4f} ± {mse_train_std:.4f}")
-        logger.info(f"\t  Val MSE: {mse_val:.4f} ± {mse_val_std:.4f}", end="\n\n")
+        logger.info(f"\t  Val MSE: {mse_val:.4f} ± {mse_val_std:.4f}")
 
     best_model[model_name] = grid_search.best_estimator_
         
