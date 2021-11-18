@@ -2,7 +2,7 @@
 
 Have you ever wondered how you can train and deploy a custom model using AWS Sagemaker? If so, this repository helps you achieve your goal.
 
-The basic idea here is to The basic idea here is to tackle a well-known regression task - NYC taxi fare amount prediction - and then deploy it in the cloud.
+The basic idea here is to tackle a well-known regression task - NYC taxi fare amount prediction - and then deploy it in the cloud.
 
 AWS Sagemaker supports SKLearn flavor to deploy your model, however it is a trade-off: you have to let it go some of the flexibility when developing your model. Since data scientist love to design their own solution because it really allows for creativity, it is important to manage to train and deploy your custom algorithm to AWS Sagemaker.
 
