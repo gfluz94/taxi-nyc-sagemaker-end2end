@@ -8,7 +8,7 @@ AWS Sagemaker supports SKLearn flavor to deploy your model, however it is a trad
 
 Hence, the following steps are essential to this process:
 
-1. **Containerization**: `Dockerfile` allows us to build our container, installing all packages specified in `requirements.txt`, downloading our pre-trained BERT model and setting up the environment for AWS Sagemaker. Once our Docker image is properly built, we can push it to AWS ECR, from where we will read it when training the model;  
+1. **Containerization**: `Dockerfile` allows us to build our container, installing all packages specified in `requirements.txt` and setting up the environment for AWS Sagemaker. Once our Docker image is properly built, we can push it to AWS ECR, from where we will read it when training the model;  
 
 2. **Inference Server**:
 
