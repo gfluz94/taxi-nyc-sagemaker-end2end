@@ -7,6 +7,8 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
 from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.ensemble import GradientBoostingRegressor
 
+from data_utils import prepare_data
+
 
 SEED = 99
 TARGET_COLUMN = ["fare_amount"]
@@ -207,3 +209,25 @@ def define_preprocessing_pipeline(continuous_features_log: List[str],
     ])
     
     return preprocessing
+
+
+def get_predictions(model: Pipeline, post_processor: BaseEstimator, inputs: pd.DataFrame) -> np.array:
+    """
+    Function that makes prediction based on new raw data.
+    
+    Args: 
+        model (sklearn Pipeline): developed model pipeline during training
+        post_processor (sklearn BaseEstimator): object that converts log-scale predictions to original scale
+        inputs (pandas DataFrame): raw input in dataframe format
+        
+    Returns: 
+        Pipeline object to preprocess the input features.
+    """
+    feats = prepare_data(
+        data=inputs,
+        feature_engineering=True
+    )
+    log_pred = model.predict(feats).reshape(-1, 1)
+    y_pred = post_processor.inverse_transform(log_pred).reshape(-1)
+    return y_pred
+    
